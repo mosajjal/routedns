@@ -37,15 +37,14 @@ func NewHTTPLoader(url string, opt HTTPLoaderOptions) *HTTPLoader {
 }
 
 func (l *HTTPLoader) Load() (rules []string, err error) {
-	log := Log.With("url", l.url)
-	log.Debug("loading blocklist")
+	log := Log.WithField("url", l.url)
+	log.Trace("loading blocklist")
 
 	// If AllowFailure is enabled, return the last successfully loaded list
 	// and nil
 	defer func() {
 		if err != nil && l.opt.AllowFailure {
-			log.Warn("failed to load blocklist, continuing with previous ruleset",
-				"error", err)
+			log.WithError(err).Warn("failed to load blocklist, continuing with previous ruleset")
 			rules = l.lastSuccess
 			err = nil
 		} else {
@@ -59,11 +58,10 @@ func (l *HTTPLoader) Load() (rules []string, err error) {
 		l.fromDisk = false
 		rules, err := l.loadFromDisk()
 		if err == nil {
-			log.With("load-time", time.Since(start)).Debug("loaded blocklist from cache-dir")
+			log.WithField("load-time", time.Since(start)).Trace("loaded blocklist from cache-dir")
 			return rules, err
 		}
-		log.Warn("unable to load cached list from disk, loading from upstream",
-			"error", err)
+		log.WithError(err).Warn("unable to load cached list from disk, loading from upstream")
 	}
 
 	ctx, cancel := context.WithTimeout(context.Background(), httpTimeout)
@@ -89,13 +87,13 @@ func (l *HTTPLoader) Load() (rules []string, err error) {
 	for scanner.Scan() {
 		rules = append(rules, scanner.Text())
 	}
-	log.With("load-time", time.Since(start)).Debug("completed loading blocklist")
+	log.WithField("load-time", time.Since(start)).Trace("completed loading blocklist")
 
 	// Cache the content to disk if the read from the remote server was successful
 	if scanner.Err() == nil && l.opt.CacheDir != "" {
-		log.Debug("writing rules to cache-dir")
+		log.Trace("writing rules to cache-dir")
 		if err := l.writeToDisk(rules); err != nil {
-			Log.Error("failed to write rules to cache", "error", err)
+			log.WithError(err).Error("failed to write rules to cache")
 		}
 	}
 	return rules, scanner.Err()

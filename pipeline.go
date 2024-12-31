@@ -83,14 +83,14 @@ func (c *Pipeline) start() {
 		wg       sync.WaitGroup
 		inFlight inFlightQueue
 	)
-	log := Log.With("addr", c.addr)
+	log := Log.WithField("addr", c.addr)
 	for req := range c.requests { // Lazy connection. Only open a real connection if there's a request
 		done := make(chan struct{})
-		log.Debug("opening connection")
+		log.Trace("opening connection")
 		conn, err := c.client.Dial(c.addr)
 		if err != nil {
 			c.metrics.err.Add("open", 1)
-			Log.Error("failed to open connection", "error", err)
+			log.WithError(err).Error("failed to open connection")
 			req.markDone(nil, err)
 			continue
 		}
@@ -103,7 +103,7 @@ func (c *Pipeline) start() {
 				select {
 				case req := <-c.requests:
 					query := inFlight.add(req)
-					log.With("qname", qName(query)).Debug("sending query")
+					log.WithField("qname", qName(query)).Trace("sending query")
 					c.metrics.query.Add(1)
 					if err := conn.WriteMsg(query); err != nil {
 						req.markDone(nil, err) // fail the request
@@ -111,8 +111,7 @@ func (c *Pipeline) start() {
 						conn.Close()           // throw away this connection, should wake up the reader as well
 						wg.Done()
 						c.metrics.err.Add("send_query", 1)
-						log.With("qname", qName(query)).Debug("failed sending query",
-							"error", err)
+						log.WithField("qname", qName(query)).WithError(err).Trace("failed sending query")
 						return
 					}
 				case <-done: // the reader ran into an error and we want to stop using this connection
@@ -133,10 +132,10 @@ func (c *Pipeline) start() {
 					switch e := err.(type) {
 					case net.Error:
 						if e.Timeout() {
-							log.Debug("connection terminated by idle timeout")
+							log.Trace("connection terminated by idle timeout")
 						} else {
 							c.metrics.err.Add("server_term", 1)
-							log.Debug("connection terminated by server")
+							log.Trace("connection terminated by server")
 						}
 						close(done) // tell the writer to not use this connection anymore
 						wg.Done()
@@ -144,7 +143,7 @@ func (c *Pipeline) start() {
 					default:
 						if err == io.EOF {
 							c.metrics.err.Add("server_eof", 1)
-							log.Debug("connection terminated by server")
+							log.Trace("connection terminated by server")
 							close(done) // tell the writer to not use this connection anymore
 							wg.Done()
 							return
@@ -154,18 +153,18 @@ func (c *Pipeline) start() {
 						// got a bad packet (like a truncated one for example).
 						if a == nil {
 							c.metrics.err.Add("read", 1)
-							Log.Error("read failed", "error", err)
+							log.WithError(err).Error("read failed")
 							close(done) // tell the writer to not use this connection anymore
 							wg.Done()
 							return
 						}
-						log.Warn("failed to read response", "error", err, "qname", qName(a))
+						log.WithField("qname", qName(a)).Warn(err)
 					}
 				}
 				req := inFlight.get(a) // match the answer to an in-flight query
 				if req == nil {
 					c.metrics.err.Add("unexpected_a", 1)
-					log.With("qname", qName(a)).Warn("unexpected answer received, ignoring")
+					log.WithField("qname", qName(a)).Warn("unexpected answer received, ignoring")
 					continue
 				}
 				c.metrics.response.Add(rCode(a), 1)

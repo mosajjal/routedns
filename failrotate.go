@@ -3,9 +3,8 @@ package rdns
 import (
 	"sync"
 
-	"log/slog"
-
 	"github.com/miekg/dns"
+	"github.com/sirupsen/logrus"
 )
 
 // FailRotate is a resolver group that queries the same resolver unless that
@@ -51,14 +50,13 @@ func (r *FailRotate) Resolve(q *dns.Msg, ci ClientInfo) (*dns.Msg, error) {
 	)
 	for i := 0; i < len(r.resolvers); i++ {
 		resolver, active := r.current()
-		log.With("resolver", resolver.String()).Debug("forwarding query to resolver")
+		log.WithField("resolver", resolver.String()).Trace("forwarding query to resolver")
 		r.metrics.route.Add(resolver.String(), 1)
 		a, err = resolver.Resolve(q, ci)
 		if err == nil && r.isSuccessResponse(a) { // Return immediately if successful
 			return a, err
 		}
-		log.With("resolver", resolver.String()).Debug("resolver returned failure",
-			"error", err)
+		log.WithField("resolver", resolver.String()).WithError(err).Debug("resolver returned failure")
 		r.metrics.failure.Add(resolver.String(), 1)
 
 		r.errorFrom(active)
@@ -89,7 +87,10 @@ func (r *FailRotate) errorFrom(i int) {
 	}
 	r.metrics.failover.Add(1)
 	r.active = (r.active + 1) % len(r.resolvers)
-	Log.Debug("failing over to resolver", slog.Group("details", slog.String("id", r.id), slog.String("resolver", r.resolvers[r.active].String())))
+	Log.WithFields(logrus.Fields{
+		"id":       r.id,
+		"resolver": r.resolvers[r.active].String(),
+	}).Debug("failing over to resolver")
 }
 
 // Returns true is the response is considered successful given the options.

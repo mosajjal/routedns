@@ -55,10 +55,10 @@ func (d *Socks5Dialer) Dial(network string, address string) (net.Conn, error) {
 		if d.opt.ResolveLocal {
 			host, port, err := net.SplitHostPort(address)
 			if err != nil {
-				Log.Error("failed to parse socks5 address", "error", err)
+				Log.WithError(err).Error("failed to parse socks5 address")
 				return
 			}
-			Log.With("addr", host).Debug("resolving dns server locally")
+			Log.WithField("addr", host).Debug("resolving dns server locally")
 			ip := net.ParseIP(host)
 			if ip != nil {
 				// Already an IP
@@ -72,12 +72,11 @@ func (d *Socks5Dialer) Dial(network string, address string) (net.Conn, error) {
 			defer cancel()
 			ips, err := net.DefaultResolver.LookupIP(ctx, "ip4", host)
 			if err != nil {
-				Log.Error("failed to lookup host locally", "error", err,
-					"host", host)
+				Log.WithError(err).Errorf("failed to lookup %q locally", host)
 				return
 			}
 			if len(ips) == 0 {
-				Log.Error("failed to resolve dns server locally, forwarding to socks5 proxy", "error", err)
+				Log.WithError(err).Error("failed to resolve dns server locally, forwarding to socks5 proxy")
 				return
 			}
 			d.addr = net.JoinHostPort(ips[0].String(), port)

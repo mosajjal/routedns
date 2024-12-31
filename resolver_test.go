@@ -8,8 +8,7 @@ import (
 
 func init() {
 	// Silence the logger while running tests
-	// TODO:fix
-	// Log.SetLevel(0)
+	Log.SetLevel(0)
 }
 
 // TestResolver is a configurable resolver used for testing. It counts the

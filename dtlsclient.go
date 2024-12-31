@@ -8,6 +8,7 @@ import (
 
 	"github.com/miekg/dns"
 	"github.com/pion/dtls/v2"
+	"github.com/sirupsen/logrus"
 )
 
 // DTLSClient is a DNS-over-DTLS resolver.
@@ -95,11 +96,10 @@ func (d *DTLSClient) Resolve(q *dns.Msg, ci ClientInfo) (*dns.Msg, error) {
 	// Packing a message is not always a read-only operation, make a copy
 	q = q.Copy()
 
-	log := logger(d.id, q, ci)
-	log.Debug("querying upstream resolver",
-		"resolver", d.endpoint,
-		"protocol", "dtls",
-	)
+	logger(d.id, q, ci).WithFields(logrus.Fields{
+		"resolver": d.endpoint,
+		"protocol": "dtls",
+	}).Debug("querying upstream resolver")
 
 	q = setUDPSize(q, d.opt.UDPSize)
 

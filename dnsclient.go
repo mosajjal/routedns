@@ -6,9 +6,8 @@ import (
 	"strings"
 	"time"
 
-	"log/slog"
-
 	"github.com/miekg/dns"
+	"github.com/sirupsen/logrus"
 )
 
 // DNSClient represents a simple DNS resolver for UDP or TCP.
@@ -66,11 +65,11 @@ func NewDNSClient(id, endpoint, network string, opt DNSClientOptions) (*DNSClien
 func (d *DNSClient) Resolve(q *dns.Msg, ci ClientInfo) (*dns.Msg, error) {
 	// Packing a message is not always a read-only operation, make a copy
 	q = q.Copy()
-	log := logger(d.id, q, ci)
-	log.Debug("querying upstream resolver",
-		slog.String("resolver", d.endpoint),
-		slog.String("protocol", d.net),
-	)
+
+	logger(d.id, q, ci).WithFields(logrus.Fields{
+		"resolver": d.endpoint,
+		"protocol": d.net,
+	}).Debug("querying upstream resolver")
 
 	q = setUDPSize(q, d.opt.UDPSize)
 

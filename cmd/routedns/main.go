@@ -4,7 +4,6 @@ import (
 	"crypto/tls"
 	"errors"
 	"fmt"
-	"log/slog"
 	"net"
 	"net/url"
 	"os"
@@ -17,6 +16,7 @@ import (
 	rdns "github.com/folbricht/routedns"
 	"github.com/heimdalr/dag"
 	"github.com/redis/go-redis/v9"
+	"github.com/sirupsen/logrus"
 	"github.com/spf13/cobra"
 )
 
@@ -81,21 +81,6 @@ func start(opt options, args []string) error {
 	if opt.logLevel > 6 {
 		return fmt.Errorf("invalid log level: %d", opt.logLevel)
 	}
-
-	// Convert logrus levels to slog levels
-	var level slog.Level
-	switch opt.logLevel {
-	case 0:
-		level = slog.LevelError
-	case 1, 2:
-		level = slog.LevelWarn
-	case 3, 4:
-		level = slog.LevelInfo
-	case 5, 6:
-		level = slog.LevelDebug
-	default:
-		level = slog.LevelInfo
-	}
 	if opt.version {
 		printVersion()
 		os.Exit(0)
@@ -105,7 +90,7 @@ func start(opt options, args []string) error {
 		}
 
 	}
-	rdns.Log = slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{Level: level}))
+	rdns.Log.SetLevel(logrus.Level(opt.logLevel))
 
 	config, err := loadConfig(args...)
 	if err != nil {
@@ -306,8 +291,7 @@ func start(opt options, args []string) error {
 		go func(l rdns.Listener) {
 			for {
 				err := l.Start()
-				rdns.Log.Error("listener failed",
-					"error", err)
+				rdns.Log.WithError(err).Error("listener failed")
 				time.Sleep(time.Second)
 			}
 		}(l)

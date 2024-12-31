@@ -50,11 +50,10 @@ func (r *Fastest) Resolve(q *dns.Msg, ci ClientInfo) (*dns.Msg, error) {
 	for resolverResponse := range responseCh {
 		resolver, a, err := resolverResponse.r, resolverResponse.a, resolverResponse.err
 		if err == nil && (a == nil || a.Rcode != dns.RcodeServerFailure) { // Return immediately if successful
-			log.With("resolver", resolver.String()).Debug("using response from resolver")
+			log.WithField("resolver", resolver.String()).Trace("using response from resolver")
 			return a, err
 		}
-		log.With("resolver", resolver.String()).Debug("resolver returned failure, waiting for next response",
-			"error", err)
+		log.WithField("resolver", resolver.String()).WithError(err).Debug("resolver returned failure, waiting for next response")
 
 		// If all responses were bad, return the last one
 		if i++; i >= len(r.resolvers) {

@@ -6,6 +6,7 @@ import (
 	"fmt"
 
 	"github.com/miekg/dns"
+	"github.com/sirupsen/logrus"
 )
 
 // Router for DNS requests based on query type and/or name. Implements the Resolver interface.
@@ -56,9 +57,10 @@ func (r *Router) Resolve(q *dns.Msg, ci ClientInfo) (*dns.Msg, error) {
 		if !route.match(q, ci) {
 			continue
 		}
-		log.Debug("routing query to resolver",
-			"route", route.String(),
-			"resolver", route.resolver.String())
+		log.WithFields(logrus.Fields{
+			"route":    route.String(),
+			"resolver": route.resolver.String()},
+		).Debug("routing query to resolver")
 		r.metrics.route.Add(route.resolver.String(), 1)
 		a, err := route.resolver.Resolve(q, ci)
 		if err != nil {

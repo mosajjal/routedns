@@ -8,11 +8,10 @@ import (
 	"net"
 	"time"
 
-	"log/slog"
-
 	"github.com/miekg/dns"
 	"github.com/pkg/errors"
 	quic "github.com/quic-go/quic-go"
+	"github.com/sirupsen/logrus"
 )
 
 const (
@@ -25,7 +24,7 @@ type DoQClient struct {
 	id       string
 	endpoint string
 	requests chan *request
-	log      *slog.Logger
+	log      *logrus.Entry
 	metrics  *ListenerMetrics
 
 	connection quicConnection
@@ -44,7 +43,7 @@ type DoQClientOptions struct {
 
 	QueryTimeout time.Duration
 
-	Use0RTT bool
+	Use0RTT       bool
 }
 
 var _ Resolver = &DoQClient{}
@@ -88,10 +87,7 @@ func NewDoQClient(id, endpoint string, opt DoQClientOptions) (*DoQClient, error)
 	if opt.QueryTimeout == 0 {
 		opt.QueryTimeout = defaultQueryTimeout
 	}
-	log := Log.With(
-		"protocol", "doq",
-		"endpoint", endpoint,
-	)
+	log := Log.WithFields(logrus.Fields{"protocol": "doq", "endpoint": endpoint})
 	return &DoQClient{
 		id:               id,
 		endpoint:         endpoint,
@@ -103,7 +99,7 @@ func NewDoQClient(id, endpoint string, opt DoQClientOptions) (*DoQClient, error)
 			lAddr:     lAddr,
 			tlsConfig: tlsConfig,
 			config: &quic.Config{
-				TokenStore:           quic.NewLRUTokenStore(10, 10),
+				TokenStore: quic.NewLRUTokenStore(10, 10),
 				HandshakeIdleTimeout: opt.QueryTimeout,
 			},
 		},
@@ -113,7 +109,10 @@ func NewDoQClient(id, endpoint string, opt DoQClientOptions) (*DoQClient, error)
 
 // Resolve a DNS query.
 func (d *DoQClient) Resolve(q *dns.Msg, ci ClientInfo) (*dns.Msg, error) {
-	Log.Debug("querying upstream resolver", slog.Group("details", slog.String("id", d.id), slog.String("resolver", d.endpoint), slog.String("protocol", "doq"), slog.String("qname", qName(q)), slog.String("qtype", qType(q))))
+	logger(d.id, q, ci).WithFields(logrus.Fields{
+		"resolver": d.endpoint,
+		"protocol": "doq",
+	}).Debug("querying upstream resolver")
 
 	d.metrics.query.Add(1)
 
@@ -210,7 +209,7 @@ func (d *DoQClient) String() string {
 	return d.id
 }
 
-func (s *quicConnection) getStream(endpoint string, log *slog.Logger) (quic.Stream, error) {
+func (s *quicConnection) getStream(endpoint string, log *logrus.Entry) (quic.Stream, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
@@ -219,10 +218,9 @@ func (s *quicConnection) getStream(endpoint string, log *slog.Logger) (quic.Stre
 		var err error
 		s.EarlyConnection, s.udpConn, err = quicDial(context.TODO(), s.hostname, endpoint, s.lAddr, s.tlsConfig, s.config)
 		if err != nil {
-			log.Error("failed to open connection",
-				"hostname", s.hostname,
-				"error", err,
-			)
+			log.WithFields(logrus.Fields{
+				"hostname": s.hostname,
+			}).WithError(err).Error("failed to open connection")
 			return nil, err
 		}
 		s.rAddr = endpoint
@@ -231,18 +229,16 @@ func (s *quicConnection) getStream(endpoint string, log *slog.Logger) (quic.Stre
 	// If we can't get a stream then restart the connection and try again once
 	stream, err := s.EarlyConnection.OpenStream()
 	if err != nil {
-		log.Debug("temporary fail when trying to open stream, attempting new connection",
-			"error", err,
-		)
+		log.WithError(err).Debug("temporary fail when trying to open stream, attempting new connection")
 		if err = quicRestart(s); err != nil {
-			log.Error("failed to open connection", "hostname", s.hostname, "error", err)
+			log.WithFields(logrus.Fields{
+				"hostname": s.hostname,
+			}).WithError(err).Error("failed to open connection")
 			return nil, err
 		}
 		stream, err = s.EarlyConnection.OpenStream()
 		if err != nil {
-			log.Error("failed to open stream",
-				"error", err,
-			)
+			log.WithError(err).Error("failed to open stream")
 		}
 	}
 	return stream, err

@@ -3,12 +3,12 @@ package rdns
 import (
 	"errors"
 	"expvar"
-	"log/slog"
 	"net"
 	"sync"
 	"time"
 
 	"github.com/miekg/dns"
+	"github.com/sirupsen/logrus"
 )
 
 // Blocklist is a resolver that returns NXDOMAIN or a spoofed IP for every query that
@@ -103,33 +103,25 @@ func (r *Blocklist) Resolve(q *dns.Msg, ci ClientInfo) (*dns.Msg, error) {
 	// Forward to upstream or the optional allowlist-resolver immediately if there's a match in the allowlist
 	if allowlistDB != nil {
 		if _, _, match, ok := allowlistDB.Match(question); ok {
-			log = log.With(
-				slog.String("list", match.List),
-				slog.String("rule", match.Rule),
-			)
+			log = log.WithFields(logrus.Fields{"list": match.List, "rule": match.Rule})
 			r.metrics.allowed.Add(1)
 			if r.AllowListResolver != nil {
-				log.Debug("matched allowlist, forwarding",
-					"resolver", r.AllowListResolver.String())
+				log.WithField("resolver", r.AllowListResolver.String()).Debug("matched allowlist, forwarding")
 				return r.AllowListResolver.Resolve(q, ci)
 			}
-			log.Debug("matched allowlist, forwarding",
-				"resolver", r.resolver.String())
+			log.WithField("resolver", r.resolver.String()).Debug("matched allowlist, forwarding")
 			return r.resolver.Resolve(q, ci)
 		}
 	}
 
 	ips, names, match, ok := blocklistDB.Match(question)
 	if !ok {
-		log.Debug("forwarding unmodified query to resolver",
-			"resolver", r.resolver.String())
+		// Didn't match anything, pass it on to the next resolver
+		log.WithField("resolver", r.resolver.String()).Debug("forwarding unmodified query to resolver")
 		r.metrics.allowed.Add(1)
 		return r.resolver.Resolve(q, ci)
 	}
-	log = log.With(
-		slog.String("list", match.List),
-		slog.String("rule", match.Rule),
-	)
+	log = log.WithFields(logrus.Fields{"list": match.List, "rule": match.Rule})
 	r.metrics.blocked.Add(1)
 
 	// If we got names for the PTR query, respond to it
@@ -143,8 +135,7 @@ func (r *Blocklist) Resolve(q *dns.Msg, ci ClientInfo) (*dns.Msg, error) {
 
 	// If an optional blocklist-resolver was given, send the query to that instead of returning NXDOMAIN.
 	if r.BlocklistResolver != nil {
-		log.Debug("matched blocklist, forwarding",
-			"resolver", r.BlocklistResolver.String())
+		log.WithField("resolver", r.BlocklistResolver.String()).Debug("matched blocklist, forwarding")
 		return r.BlocklistResolver.Resolve(q, ci)
 	}
 
@@ -187,7 +178,7 @@ func (r *Blocklist) Resolve(q *dns.Msg, ci ClientInfo) (*dns.Msg, error) {
 	// Block the request with NXDOMAIN if there was a match but no valid spoofed IP is given
 	log.Debug("blocking request")
 	if err := r.EDNS0EDETemplate.Apply(answer, EDNS0EDEInput{q, match}); err != nil {
-		log.Error("failed to apply edns0ede template", "error", err)
+		log.WithError(err).Error("failed to apply edns0ede template")
 	}
 	answer.SetRcode(q, dns.RcodeNameError)
 	return answer, nil
@@ -200,11 +191,11 @@ func (r *Blocklist) String() string {
 func (r *Blocklist) refreshLoopBlocklist(refresh time.Duration) {
 	for {
 		time.Sleep(refresh)
-		log := Log.With(slog.String("id", r.id))
+		log := Log.WithField("id", r.id)
 		log.Debug("reloading blocklist")
 		db, err := r.BlocklistDB.Reload()
 		if err != nil {
-			log.Error("failed to load rules", "error", err)
+			log.WithError(err).Error("failed to load rules")
 			continue
 		}
 		r.mu.Lock()
@@ -215,11 +206,11 @@ func (r *Blocklist) refreshLoopBlocklist(refresh time.Duration) {
 func (r *Blocklist) refreshLoopAllowlist(refresh time.Duration) {
 	for {
 		time.Sleep(refresh)
-		log := Log.With(slog.String("id", r.id))
+		log := Log.WithField("id", r.id)
 		log.Debug("reloading allowlist")
 		db, err := r.AllowlistDB.Reload()
 		if err != nil {
-			log.Error("failed to load rules", "error", err)
+			log.WithError(err).Error("failed to load rules")
 			continue
 		}
 		r.mu.Lock()
